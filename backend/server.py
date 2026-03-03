@@ -230,6 +230,8 @@ async def update_movie(movie_id: str, movie_data: MovieUpdate, user_id: str = De
     
     # Return updated movie
     updated_movie = await db.movies.find_one({"id": movie_id})
+    if updated_movie and "_id" in updated_movie:
+        del updated_movie["_id"]  # Remove MongoDB ObjectId
     return updated_movie
 
 @api_router.delete("/movies/{movie_id}")
