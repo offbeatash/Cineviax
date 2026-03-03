@@ -1,0 +1,188 @@
+diff --git a/backend/server.py b/backend/server.py
+index 3044a35..c9eeed6 100644
+--- a/backend/server.py
++++ b/backend/server.py
+@@ -14,6 +14,13 @@ from passlib.context import CryptContext
+ from jose import JWTError, jwt
+ import requests
+ 
++# Configure logging
++logging.basicConfig(
++    level=logging.INFO,
++    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
++)
++logger = logging.getLogger(__name__)
++
+ ROOT_DIR = Path(__file__).parent
+ load_dotenv(ROOT_DIR / '.env')
+ 
+@@ -163,6 +170,10 @@ async def login(user_data: UserLogin):
+ @api_router.get("/movies")
+ async def get_movies(user_id: str = Depends(get_current_user)):
+     movies = await db.movies.find({"user_id": user_id}).to_list(1000)
++    # Convert MongoDB documents to proper format
++    for movie in movies:
++        if "_id" in movie:
++            del movie["_id"]  # Remove MongoDB ObjectId
+     return movies
+ 
+ @api_router.post("/movies")
+@@ -219,6 +230,8 @@ async def update_movie(movie_id: str, movie_data: MovieUpdate, user_id: str = De
+     
+     # Return updated movie
+     updated_movie = await db.movies.find_one({"id": movie_id})
++    if updated_movie and "_id" in updated_movie:
++        del updated_movie["_id"]  # Remove MongoDB ObjectId
+     return updated_movie
+ 
+ @api_router.delete("/movies/{movie_id}")
+@@ -290,13 +303,6 @@ app.add_middleware(
+     allow_headers=["*"],
+ )
+ 
+-# Configure logging
+-logging.basicConfig(
+-    level=logging.INFO,
+-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+-)
+-logger = logging.getLogger(__name__)
+-
+ @app.on_event("shutdown")
+ async def shutdown_db_client():
+     client.close()
+diff --git a/test_result.md b/test_result.md
+index 187cba4..e19c559 100644
+--- a/test_result.md
++++ b/test_result.md
+@@ -100,4 +100,128 @@
+ 
+ #====================================================================================================
+ # Testing Data - Main Agent and testing sub agent both should log testing data below this section
+-#====================================================================================================
+\ No newline at end of file
++#====================================================================================================
++
++user_problem_statement: "Test the Cineviax backend application for authentication, movie management, and TMDB search functionality"
++
++backend:
++  - task: "User Authentication - Signup"
++    implemented: true
++    working: true
++    file: "/app/backend/server.py"
++    stuck_count: 0
++    priority: "high"
++    needs_retesting: false
++    status_history:
++      - working: true
++        agent: "testing"
++        comment: "User signup endpoint working correctly. Creates new user and returns JWT token. Handles duplicate email registration appropriately."
++  
++  - task: "User Authentication - Login"
++    implemented: true
++    working: true
++    file: "/app/backend/server.py"
++    stuck_count: 0
++    priority: "high"
++    needs_retesting: false
++    status_history:
++      - working: true
++        agent: "testing"
++        comment: "User login endpoint working correctly. Validates credentials and returns JWT token for valid users."
++  
++  - task: "TMDB Movie Search"
++    implemented: true
++    working: true
++    file: "/app/backend/server.py"
++    stuck_count: 0
++    priority: "high"
++    needs_retesting: false
++    status_history:
++      - working: true
++        agent: "testing"
++        comment: "TMDB search endpoint working correctly. Successfully searches for movies/TV shows and returns formatted results with all required fields (tmdb_id, title, media_type, etc.)."
++  
++  - task: "Movie Management - Add Movie"
++    implemented: true
++    working: true
++    file: "/app/backend/server.py"
++    stuck_count: 0
++    priority: "high"
++    needs_retesting: false
++    status_history:
++      - working: true
++        agent: "testing"
++        comment: "Add movie endpoint working correctly. Successfully adds movies to user's watchlist with proper authentication. Handles duplicate movie prevention."
++  
++  - task: "Movie Management - Get Movies"
++    implemented: true
++    working: true
++    file: "/app/backend/server.py"
++    stuck_count: 1
++    priority: "high"
++    needs_retesting: false
++    status_history:
++      - working: false
++        agent: "testing"
++        comment: "Initial test failed due to MongoDB ObjectId serialization issue causing 500 errors."
++      - working: true
++        agent: "testing"
++        comment: "Fixed ObjectId serialization issue by removing _id field from MongoDB documents before returning. Now successfully retrieves user's movie list."
++  
++  - task: "Movie Management - Update Movie"
++    implemented: true
++    working: true
++    file: "/app/backend/server.py"
++    stuck_count: 1
++    priority: "high"
++    needs_retesting: false
++    status_history:
++      - working: false
++        agent: "testing"
++        comment: "Initial test failed due to MongoDB ObjectId serialization issue in response."
++      - working: true
++        agent: "testing"
++        comment: "Fixed ObjectId serialization issue. Now successfully updates movie status (watched/unwatched) and personal ratings."
++  
++  - task: "Movie Management - Delete Movie"
++    implemented: true
++    working: true
++    file: "/app/backend/server.py"
++    stuck_count: 0
++    priority: "high"
++    needs_retesting: false
++    status_history:
++      - working: true
++        agent: "testing"
++        comment: "Delete movie endpoint working correctly. Successfully removes movies from user's watchlist with proper authentication and error handling."
++  
++  - task: "Error Handling and Security"
++    implemented: true
++    working: true
++    file: "/app/backend/server.py"
++    stuck_count: 0
++    priority: "medium"
++    needs_retesting: false
++    status_history:
++      - working: true
++        agent: "testing"
++        comment: "Error handling working correctly. Properly rejects invalid authentication tokens (401), handles duplicate movies (400), and returns 404 for non-existent movie IDs."
++
++frontend:
++  # No frontend testing performed as per instructions
++
++metadata:
++  created_by: "testing_agent"
++  version: "1.0"
++  test_sequence: 1
++  run_ui: false
++
++test_plan:
++  current_focus: []
++  stuck_tasks: []
++  test_all: false
++  test_priority: "high_first"
++
++agent_communication:
++  - agent: "testing"
++    message: "Completed comprehensive backend testing for Cineviax application. Fixed critical MongoDB ObjectId serialization issues in get_movies and update_movie endpoints. All 8 backend tasks are now working correctly including authentication, TMDB search, and full CRUD operations for movie management. Backend is ready for production use."
+\ No newline at end of file
