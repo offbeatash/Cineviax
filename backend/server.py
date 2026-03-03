@@ -170,6 +170,10 @@ async def login(user_data: UserLogin):
 @api_router.get("/movies")
 async def get_movies(user_id: str = Depends(get_current_user)):
     movies = await db.movies.find({"user_id": user_id}).to_list(1000)
+    # Convert MongoDB documents to proper format
+    for movie in movies:
+        if "_id" in movie:
+            del movie["_id"]  # Remove MongoDB ObjectId
     return movies
 
 @api_router.post("/movies")
