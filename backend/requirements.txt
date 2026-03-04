@@ -23,4 +23,8 @@ pandas>=2.2.0
 numpy>=1.26.0
 python-multipart>=0.0.9
 jq>=1.6.0
+<<<<<<< HEAD
 typer>=0.9.0
+=======
+typer>=0.9.0
+>>>>>>> 937bd89286a2bf566376186bcd337b49d57f3867
