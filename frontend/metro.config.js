@@ -11,6 +11,7 @@ config.cacheStores = [
   new FileStore({ root: path.join(root, 'cache') }),
 ];
 
+config.watchFolders = [path.resolve(__dirname, '../media')];
 
 // // Exclude unnecessary directories from file watching
 // config.watchFolders = [__dirname];

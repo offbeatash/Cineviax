@@ -16,9 +16,10 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import axios from 'axios';
 import { useAuth } from '../../contexts/AuthContext';
+import CineviaxLogo from '../../components/CineviaxLogo';
 import { useRouter } from 'expo-router';
 
-const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
+const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL || 'http://localhost:8000';
 
 interface Movie {
   id: string;
@@ -65,7 +66,10 @@ export default function Watchlist() {
       const watchlistMovies = response.data.filter((m: Movie) => !m.watched);
       setMovies(watchlistMovies);
       setFilteredMovies(watchlistMovies);
-    } catch (error) {
+    } catch (error: any) {
+      if (await handleUnauthorizedError(error)) {
+        return;
+      }
       console.error('Error fetching movies:', error);
       Alert.alert('Error', 'Failed to load movies');
     } finally {
@@ -100,7 +104,10 @@ export default function Watchlist() {
         headers: { Authorization: `Bearer ${token}` },
       });
       setTmdbResults(response.data.results);
-    } catch (error) {
+    } catch (error: any) {
+      if (await handleUnauthorizedError(error)) {
+        return;
+      }
       console.error('Error searching TMDB:', error);
       Alert.alert('Error', 'Failed to search movies');
     } finally {
@@ -131,6 +138,9 @@ export default function Watchlist() {
       setTmdbResults([]);
       fetchMovies();
     } catch (error: any) {
+      if (await handleUnauthorizedError(error)) {
+        return;
+      }
       Alert.alert('Error', error.response?.data?.detail || 'Failed to add movie');
     }
   };
@@ -159,7 +169,10 @@ export default function Watchlist() {
       setSelectedMovie(null);
       setSelectedRating(0);
       fetchMovies();
-    } catch (error) {
+    } catch (error: any) {
+      if (await handleUnauthorizedError(error)) {
+        return;
+      }
       console.error('Error updating movie:', error);
       Alert.alert('Error', 'Failed to update movie');
     }
@@ -171,24 +184,22 @@ export default function Watchlist() {
         headers: { Authorization: `Bearer ${token}` },
       });
       fetchMovies();
-    } catch (error) {
+    } catch (error: any) {
+      if (await handleUnauthorizedError(error)) {
+        return;
+      }
       console.error('Error deleting movie:', error);
       Alert.alert('Error', 'Failed to delete movie');
     }
   };
 
-  const handleLogout = () => {
-    Alert.alert('Logout', 'Are you sure you want to logout?', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Logout',
-        style: 'destructive',
-        onPress: async () => {
-          await logout();
-          router.replace('/auth/login');
-        },
-      },
-    ]);
+  const handleUnauthorizedError = async (error: any) => {
+    if (axios.isAxiosError(error) && error.response?.status === 401) {
+      await logout();
+      router.replace('/auth/login');
+      return true;
+    }
+    return false;
   };
 
   const renderMovie = ({ item }: { item: Movie }) => (
@@ -254,10 +265,10 @@ export default function Watchlist() {
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Watchlist</Text>
-        <TouchableOpacity onPress={handleLogout}>
-          <Ionicons name="log-out-outline" size={24} color="#E50914" />
-        </TouchableOpacity>
+        <View style={styles.headerBrand}>
+          <CineviaxLogo size={40} />
+          <Text style={styles.headerTitle}>Watchlist</Text>
+        </View>
       </View>
 
       <View style={styles.searchContainer}>
@@ -452,10 +463,15 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#333',
   },
+  headerBrand: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
   headerTitle: {
     fontSize: 28,
     fontWeight: 'bold',
     color: '#E50914',
+    marginLeft: 12,
   },
   searchContainer: {
     flexDirection: 'row',

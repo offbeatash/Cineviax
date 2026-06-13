@@ -14,9 +14,11 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import axios from 'axios';
+import { useRouter } from 'expo-router';
 import { useAuth } from '../../contexts/AuthContext';
+import CineviaxLogo from '../../components/CineviaxLogo';
 
-const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
+const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL || 'http://localhost:8000';
 
 interface Movie {
   id: string;
@@ -33,7 +35,8 @@ interface Movie {
 }
 
 export default function Watched() {
-  const { token } = useAuth();
+  const { token, logout } = useAuth();
+  const router = useRouter();
   const [movies, setMovies] = useState<Movie[]>([]);
   const [filteredMovies, setFilteredMovies] = useState<Movie[]>([]);
   const [loading, setLoading] = useState(true);
@@ -50,6 +53,15 @@ export default function Watched() {
     filterAndSortMovies();
   }, [searchQuery, movies, sortBy, filterType]);
 
+  const handleUnauthorizedError = async (error: any) => {
+    if (axios.isAxiosError(error) && error.response?.status === 401) {
+      await logout();
+      router.replace('/auth/login');
+      return true;
+    }
+    return false;
+  };
+
   const fetchMovies = async () => {
     try {
       const response = await axios.get(`${API_URL}/api/movies`, {
@@ -58,7 +70,10 @@ export default function Watched() {
       const watchedMovies = response.data.filter((m: Movie) => m.watched);
       setMovies(watchedMovies);
       setFilteredMovies(watchedMovies);
-    } catch (error) {
+    } catch (error: any) {
+      if (await handleUnauthorizedError(error)) {
+        return;
+      }
       console.error('Error fetching movies:', error);
       Alert.alert('Error', 'Failed to load movies');
     } finally {
@@ -110,7 +125,10 @@ export default function Watched() {
         { headers: { Authorization: `Bearer ${token}` } }
       );
       fetchMovies();
-    } catch (error) {
+    } catch (error: any) {
+      if (await handleUnauthorizedError(error)) {
+        return;
+      }
       console.error('Error updating movie:', error);
       Alert.alert('Error', 'Failed to update movie');
     }
@@ -122,7 +140,10 @@ export default function Watched() {
         headers: { Authorization: `Bearer ${token}` },
       });
       fetchMovies();
-    } catch (error) {
+    } catch (error: any) {
+      if (await handleUnauthorizedError(error)) {
+        return;
+      }
       console.error('Error deleting movie:', error);
       Alert.alert('Error', 'Failed to delete movie');
     }
@@ -207,7 +228,10 @@ export default function Watched() {
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Watched</Text>
+        <View style={styles.headerBrand}>
+          <CineviaxLogo size={40} />
+          <Text style={styles.headerTitle}>Watched</Text>
+        </View>
       </View>
 
       <View style={styles.searchContainer}>
@@ -338,10 +362,15 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#333',
   },
+  headerBrand: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
   headerTitle: {
     fontSize: 28,
     fontWeight: 'bold',
     color: '#E50914',
+    marginLeft: 12,
   },
   searchContainer: {
     padding: 16,

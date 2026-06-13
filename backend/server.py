@@ -25,9 +25,13 @@ ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
 # MongoDB connection
-mongo_url = os.environ['MONGO_URL']
+mongo_url = os.environ.get('MONGO_URL')
+if not mongo_url:
+    raise RuntimeError('MONGO_URL is required. Copy backend/.env.example to backend/.env and set MONGO_URL.')
+
+db_name = os.environ.get('DB_NAME', 'cineviax')
 client = AsyncIOMotorClient(mongo_url)
-db = client[os.environ['DB_NAME']]
+db = client[db_name]
 
 # Create the main app without a prefix
 app = FastAPI()
@@ -36,7 +40,9 @@ app = FastAPI()
 api_router = APIRouter(prefix="/api")
 
 # Security
-SECRET_KEY = os.environ.get("SECRET_KEY", "your-secret-key-change-in-production-2024-cineviax")
+SECRET_KEY = os.environ.get("SECRET_KEY")
+if not SECRET_KEY:
+    raise RuntimeError('SECRET_KEY is required. Copy backend/.env.example to backend/.env and set SECRET_KEY.')
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 43200  # 30 days
 
@@ -44,28 +50,45 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 security = HTTPBearer()
 
 # TMDB API Configuration
-TMDB_API_KEY = "603ebfea4d9de49889a598831d13273f"
+TMDB_API_KEY = os.environ.get("TMDB_API_KEY")
+if not TMDB_API_KEY:
+    raise RuntimeError('TMDB_API_KEY is required. Set it in backend/.env or your environment.')
 TMDB_BASE_URL = "https://api.themoviedb.org/3"
 TMDB_IMAGE_BASE = "https://image.tmdb.org/t/p/w500"
 
 # Models
 class User(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    name: str
     email: EmailStr
+    phone: Optional[str] = None
     password_hash: str
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 class UserSignup(BaseModel):
+    name: Optional[str] = None
     email: EmailStr
+    phone: Optional[str] = None
     password: str
 
 class UserLogin(BaseModel):
     email: EmailStr
     password: str
 
+class UserProfile(BaseModel):
+    id: str
+    name: str
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    is_guest: bool = False
+
+class UserProfileUpdate(BaseModel):
+    name: str
+
 class Token(BaseModel):
     access_token: str
     token_type: str
+    user: UserProfile
 
 class Movie(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
@@ -110,6 +133,26 @@ def create_access_token(data: dict):
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
 
+def user_to_profile(user: dict) -> dict:
+    email = user.get("email")
+    fallback_name = email.split("@")[0] if email else "Cineviax User"
+    return {
+        "id": user["id"],
+        "name": user.get("name") or fallback_name,
+        "email": email,
+        "phone": user.get("phone"),
+        "is_guest": False,
+    }
+
+def guest_profile(user_id: str) -> dict:
+    return {
+        "id": user_id,
+        "name": "Guest User",
+        "email": None,
+        "phone": None,
+        "is_guest": True,
+    }
+
 async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
     try:
         token = credentials.credentials
@@ -145,15 +188,22 @@ async def signup(user_data: UserSignup):
         raise HTTPException(status_code=400, detail="Email already registered")
     
     # Create new user
+    display_name = user_data.name.strip() if user_data.name else user_data.email.split("@")[0]
     user = User(
+        name=display_name,
         email=user_data.email,
+        phone=user_data.phone.strip() if user_data.phone else None,
         password_hash=get_password_hash(user_data.password)
     )
     await db.users.insert_one(user.dict())
     
     # Create access token
     access_token = create_access_token(data={"sub": user.id})
-    return {"access_token": access_token, "token_type": "bearer"}
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "user": user_to_profile(user.dict()),
+    }
 
 @api_router.post("/login", response_model=Token)
 async def login(user_data: UserLogin):
@@ -164,7 +214,67 @@ async def login(user_data: UserLogin):
     
     # Create access token
     access_token = create_access_token(data={"sub": user["id"]})
-    return {"access_token": access_token, "token_type": "bearer"}
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "user": user_to_profile(user),
+    }
+
+@api_router.post("/guest", response_model=Token)
+async def guest_login():
+    guest_id = f"guest-{uuid.uuid4()}"
+    profile = guest_profile(guest_id)
+    access_token = create_access_token(data={"sub": guest_id, "is_guest": True})
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "user": profile,
+    }
+
+@api_router.get("/me", response_model=UserProfile)
+async def get_profile(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    try:
+        payload = jwt.decode(credentials.credentials, SECRET_KEY, algorithms=[ALGORITHM])
+        user_id = payload.get("sub")
+        if not user_id:
+            raise HTTPException(status_code=401, detail="Invalid authentication credentials")
+        if payload.get("is_guest"):
+            return guest_profile(user_id)
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Invalid authentication credentials")
+
+    user = await db.users.find_one({"id": user_id})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return user_to_profile(user)
+
+@api_router.patch("/me", response_model=UserProfile)
+async def update_profile(
+    profile_data: UserProfileUpdate,
+    credentials: HTTPAuthorizationCredentials = Depends(security)
+):
+    try:
+        payload = jwt.decode(credentials.credentials, SECRET_KEY, algorithms=[ALGORITHM])
+        user_id = payload.get("sub")
+        if not user_id:
+            raise HTTPException(status_code=401, detail="Invalid authentication credentials")
+        if payload.get("is_guest"):
+            raise HTTPException(status_code=403, detail="Create an account to edit your profile")
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Invalid authentication credentials")
+
+    name = profile_data.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Name cannot be empty")
+    if len(name) > 80:
+        raise HTTPException(status_code=400, detail="Name must be 80 characters or fewer")
+
+    result = await db.users.update_one({"id": user_id}, {"$set": {"name": name}})
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    user = await db.users.find_one({"id": user_id})
+    return user_to_profile(user)
 
 # Movie Routes
 @api_router.get("/movies")

@@ -9,30 +9,62 @@ import {
   Platform,
   ScrollView,
   Alert,
+  Image,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../../contexts/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
 
+const banner = require('../../../media/Cineviax_banner.png');
+
 export default function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
-  const { login } = useAuth();
+  const [error, setError] = useState<string | null>(null);
+  const { login, guestLogin } = useAuth();
   const router = useRouter();
 
+  const showAlert = (title: string, message: string) => {
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      window.alert(`${title}\n\n${message}`);
+    } else {
+      Alert.alert(title, message);
+    }
+  };
+
   const handleLogin = async () => {
+    setError(null);
     if (!email || !password) {
-      Alert.alert('Error', 'Please fill in all fields');
+      const msg = 'Please fill in all fields';
+      showAlert('Error', msg);
+      setError(msg);
       return;
     }
 
     setLoading(true);
     try {
       await login(email, password);
-      router.replace('/main');
+      router.replace('/main/watchlist');
     } catch (error: any) {
-      Alert.alert('Login Failed', error.message);
+      const message = error.message || 'Login failed';
+      setError(message);
+      showAlert('Login Failed', message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleGuestLogin = async () => {
+    setError(null);
+    setLoading(true);
+    try {
+      await guestLogin();
+      router.replace('/main/watchlist');
+    } catch (error: any) {
+      const message = error.message || 'Guest login failed';
+      setError(message);
+      showAlert('Guest Login Failed', message);
     } finally {
       setLoading(false);
     }
@@ -43,12 +75,12 @@ export default function Login() {
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       style={styles.container}
     >
-      <ScrollView contentContainerStyle={styles.scrollContent}>
+      <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
         <View style={styles.content}>
           <View style={styles.header}>
-            <Ionicons name="film" size={60} color="#E50914" />
+            <Image source={banner} style={styles.banner} resizeMode="contain" />
             <Text style={styles.title}>Cineviax</Text>
-            <Text style={styles.subtitle}>Your Personal Movie Tracker</Text>
+            <Text style={styles.subtitle}>Track what you watch</Text>
           </View>
 
           <View style={styles.form}>
@@ -56,6 +88,8 @@ export default function Login() {
               <Ionicons name="mail-outline" size={20} color="#666" style={styles.icon} />
               <TextInput
                 style={styles.input}
+                id="login-email"
+                name="email"
                 placeholder="Email"
                 placeholderTextColor="#666"
                 value={email}
@@ -69,6 +103,8 @@ export default function Login() {
               <Ionicons name="lock-closed-outline" size={20} color="#666" style={styles.icon} />
               <TextInput
                 style={styles.input}
+                id="login-password"
+                name="password"
                 placeholder="Password"
                 placeholderTextColor="#666"
                 value={password}
@@ -87,8 +123,18 @@ export default function Login() {
               </Text>
             </TouchableOpacity>
 
+            <TouchableOpacity
+              style={[styles.guestButton, loading && styles.buttonDisabled]}
+              onPress={handleGuestLogin}
+              disabled={loading}
+            >
+              <Ionicons name="person-circle-outline" size={22} color="#FFF" />
+              <Text style={styles.guestButtonText}>Continue as Guest</Text>
+            </TouchableOpacity>
+            {error ? <Text style={styles.error}>{error}</Text> : null}
+
             <View style={styles.signupContainer}>
-              <Text style={styles.signupText}>Don't have an account? </Text>
+              <Text style={styles.signupText}>Don&apos;t have an account? </Text>
               <TouchableOpacity onPress={() => router.push('/auth/signup')}>
                 <Text style={styles.signupLink}>Sign Up</Text>
               </TouchableOpacity>
@@ -111,11 +157,18 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
     padding: 24,
-    justifyContent: 'center',
+    justifyContent: 'flex-start',
   },
   header: {
     alignItems: 'center',
-    marginBottom: 48,
+    marginBottom: 24,
+  },
+  banner: {
+    width: '100%',
+    height: 260,
+    marginBottom: 24,
+    borderRadius: 20,
+    overflow: 'hidden',
   },
   title: {
     fontSize: 36,
@@ -166,6 +219,23 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: 'bold',
   },
+  guestButton: {
+    height: 54,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#666',
+    backgroundColor: '#242424',
+    marginTop: 12,
+  },
+  guestButtonText: {
+    color: '#FFF',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
   signupContainer: {
     flexDirection: 'row',
     justifyContent: 'center',
@@ -179,5 +249,10 @@ const styles = StyleSheet.create({
     color: '#E50914',
     fontSize: 16,
     fontWeight: 'bold',
+  },
+  error: {
+    color: '#FF6B6B',
+    marginTop: 12,
+    textAlign: 'center',
   },
 });

@@ -10,7 +10,7 @@ export default function Index() {
   useEffect(() => {
     if (!loading) {
       if (user) {
-        router.replace('/main');
+        router.replace('/main/watchlist');
       } else {
         router.replace('/auth/login');
       }
