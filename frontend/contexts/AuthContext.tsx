@@ -2,7 +2,7 @@ import React, { createContext, useState, useContext, useEffect } from 'react';
 import axios from 'axios';
 import { deleteStoredToken, getStoredToken, setStoredToken } from '../utils/tokenStorage';
 
-const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL || 'http://localhost:8000';
+import { API_URL } from '../utils/api';
 
 export interface AuthUser {
   id: string;

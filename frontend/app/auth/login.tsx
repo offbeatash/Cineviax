@@ -45,7 +45,7 @@ export default function Login() {
     setLoading(true);
     try {
       await login(email, password);
-      router.replace('/main/watchlist');
+      router.replace('/main/home');
     } catch (error: any) {
       const message = error.message || 'Login failed';
       setError(message);

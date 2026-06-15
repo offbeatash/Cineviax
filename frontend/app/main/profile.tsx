@@ -19,7 +19,7 @@ import axios from 'axios';
 import CineviaxLogo from '../../components/CineviaxLogo';
 import { useAuth } from '../../contexts/AuthContext';
 
-const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL || 'http://localhost:8000';
+import { API_URL } from '../../utils/api';
 
 interface Movie {
   id: string;
@@ -163,6 +163,11 @@ export default function Profile() {
     router.replace('/auth/signup');
   };
 
+  const handleLogin = async () => {
+    await logout();
+    router.replace('/auth/login');
+  };
+
   const initial = user?.name?.trim().charAt(0).toUpperCase() || 'C';
 
   return (
@@ -249,59 +254,32 @@ export default function Profile() {
           </View>
         </View>
 
-        <SectionTitle title="Continue Watching" />
-        <MovieShelf
-          movies={library.watchlist.slice(0, 5)}
-          emptyText="Nothing waiting for you yet."
-          onViewAll={() => router.push('/main/watchlist')}
-        />
-
-        <SectionTitle title="Recently Watched" />
-        <MovieShelf
-          movies={library.watched.slice(0, 5)}
-          emptyText="Your recently watched titles will appear here."
-          onViewAll={() => router.push('/main/watched')}
-        />
-
-        <SectionTitle title="Watchlist" />
-        <MovieShelf
-          movies={library.watchlist.slice(0, 8)}
-          emptyText="Add movies or series to build your watchlist."
-          onViewAll={() => router.push('/main/watchlist')}
-        />
-
-        <SectionTitle title="Statistics" />
-        {loadingMovies ? (
-          <View style={styles.loadingCard}>
-            <ActivityIndicator color="#E50914" />
+        <View style={styles.profileSummaryRow}>
+          <View style={styles.summaryCard}>
+            <Text style={styles.summaryLabel}>Movies watched</Text>
+            <Text style={styles.summaryValue}>{library.moviesWatched}</Text>
           </View>
-        ) : (
-          <View style={styles.statsCard}>
-            <StatRow icon="person-outline" label="Username" value={user?.name || 'Guest User'} />
-            <StatRow
-              icon="film-outline"
-              label="Movies Watched"
-              value={library.moviesWatched.toString()}
-            />
-            <StatRow
-              icon="tv-outline"
-              label="Series Watched"
-              value={library.seriesWatched.toString()}
-            />
-            <StatRow
-              icon="bookmark-outline"
-              label="Watchlist Count"
-              value={library.watchlist.length.toString()}
-            />
-            <StatRow icon="star-outline" label="Average Rating" value={library.averageRating} />
-            <StatRow
-              icon="heart-outline"
-              label="Favorite Genre"
-              value={library.favoriteGenre}
-              last
-            />
+          <View style={styles.summaryCard}>
+            <Text style={styles.summaryLabel}>Series watched</Text>
+            <Text style={styles.summaryValue}>{library.seriesWatched}</Text>
           </View>
-        )}
+        </View>
+
+        <View style={styles.profileSummaryRow}>
+          <View style={styles.summaryCard}>
+            <Text style={styles.summaryLabel}>Average rating</Text>
+            <Text style={styles.summaryValue}>{library.averageRating}</Text>
+          </View>
+          <View style={styles.summaryCard}>
+            <Text style={styles.summaryLabel}>Top genre</Text>
+            <Text style={styles.summaryValue}>{library.favoriteGenre}</Text>
+          </View>
+        </View>
+
+        <SectionTitle title="Favorite movies" />
+        <View style={styles.favoriteMoviesCard}>
+          <Text style={styles.favoriteMoviesText}>Your favorite movies will appear here once you rate them.</Text>
+        </View>
 
         <SectionTitle title="Personal Information" />
         <View style={styles.detailsCard}>
@@ -320,10 +298,16 @@ export default function Profile() {
         ) : null}
 
         {user?.is_guest ? (
-          <TouchableOpacity style={styles.primaryButton} onPress={handleCreateAccount}>
-            <Ionicons name="person-add-outline" size={20} color="#FFF" />
-            <Text style={styles.primaryButtonText}>Create Account</Text>
-          </TouchableOpacity>
+          <View style={styles.guestActionRow}>
+            <TouchableOpacity style={[styles.primaryButton, styles.expandButton]} onPress={handleCreateAccount}>
+              <Ionicons name="person-add-outline" size={20} color="#FFF" />
+              <Text style={styles.primaryButtonText}>Create Account</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.secondaryButton, styles.expandButton]} onPress={handleLogin}>
+              <Ionicons name="log-in-outline" size={20} color="#FFF" />
+              <Text style={styles.secondaryButtonText}>Login</Text>
+            </TouchableOpacity>
+          </View>
         ) : null}
 
         <TouchableOpacity
@@ -724,6 +708,28 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: 'bold',
   },
+  guestActionRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 12,
+  },
+  expandButton: {
+    flex: 1,
+  },
+  secondaryButton: {
+    height: 54,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    borderRadius: 12,
+    backgroundColor: '#333',
+  },
+  secondaryButtonText: {
+    color: '#FFF',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
   logoutButton: {
     height: 54,
     flexDirection: 'row',
@@ -739,5 +745,43 @@ const styles = StyleSheet.create({
     color: '#FF6B6B',
     fontSize: 16,
     fontWeight: 'bold',
+  },
+  profileSummaryRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 16,
+  },
+  summaryCard: {
+    flex: 1,
+    backgroundColor: '#1F1F1F',
+    borderRadius: 16,
+    padding: 18,
+    borderWidth: 1,
+    borderColor: '#2C2C2C',
+  },
+  summaryLabel: {
+    color: '#777',
+    fontSize: 12,
+    marginBottom: 6,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  summaryValue: {
+    color: '#FFF',
+    fontSize: 26,
+    fontWeight: 'bold',
+  },
+  favoriteMoviesCard: {
+    backgroundColor: '#1F1F1F',
+    borderRadius: 16,
+    padding: 18,
+    borderWidth: 1,
+    borderColor: '#2C2C2C',
+    marginBottom: 18,
+  },
+  favoriteMoviesText: {
+    color: '#777',
+    fontSize: 14,
+    lineHeight: 20,
   },
 });

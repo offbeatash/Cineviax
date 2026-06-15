@@ -66,7 +66,7 @@ export default function Signup() {
     try {
       await signup(name.trim(), email.trim(), phone.trim(), password);
       showAlert('Account created', 'Welcome to Cineviax!', [
-        { text: 'Continue', onPress: () => router.replace('/main/watchlist') },
+        { text: 'Continue', onPress: () => router.replace('/main/home') },
       ]);
     } catch (error: any) {
       const message = error.message || 'Signup failed';
@@ -203,13 +203,29 @@ export default function Signup() {
             </TouchableOpacity>
             {error ? <Text style={styles.error}>{error}</Text> : null}
 
-            <View style={styles.loginContainer}>
-              <Text style={styles.loginText}>Already have an account? </Text>
-              <TouchableOpacity onPress={() => router.replace('/auth/login')}>
-                <Text style={styles.loginLink}>Login</Text>
-              </TouchableOpacity>
-            </View>
+            <View style={styles.actionRow}>
+            <TouchableOpacity
+              style={[styles.sideButton, styles.loginSideButton]}
+              onPress={() => router.replace('/auth/login')}
+              disabled={loading}
+            >
+              <Text style={styles.sideButtonText}>Login</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.sideButton, styles.createAccountSideButton]}
+              onPress={handleSignup}
+              disabled={loading}
+            >
+              <Text style={styles.sideButtonText}>Create Account</Text>
+            </TouchableOpacity>
           </View>
+          <View style={styles.loginContainer}>
+            <Text style={styles.loginText}>Already have an account? </Text>
+            <TouchableOpacity onPress={() => router.replace('/auth/login')}>
+              <Text style={styles.loginLink}>Login</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
         </View>
       </ScrollView>
     </KeyboardAvoidingView>
@@ -342,5 +358,29 @@ const styles = StyleSheet.create({
   },
   topGuestButton: {
     width: '100%',
+  },
+  actionRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 12,
+    marginTop: 18,
+  },
+  sideButton: {
+    flex: 1,
+    height: 56,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  createAccountSideButton: {
+    backgroundColor: '#E50914',
+  },
+  loginSideButton: {
+    backgroundColor: '#333',
+  },
+  sideButtonText: {
+    color: '#FFF',
+    fontSize: 16,
+    fontWeight: 'bold',
   },
 });

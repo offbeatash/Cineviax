@@ -13,6 +13,7 @@ from datetime import datetime, timedelta
 from passlib.context import CryptContext
 from jose import JWTError, jwt
 import requests
+from pymongo.errors import DuplicateKeyError
 
 # Configure logging
 logging.basicConfig(
@@ -55,6 +56,8 @@ async def add_security_headers(request: Request, call_next):
     response = await call_next(request)
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+    response.headers["Referrer-Policy"] = "no-referrer-when-downgrade"
     return response
 
 # TMDB API Configuration
@@ -172,6 +175,12 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
     except JWTError:
         raise HTTPException(status_code=401, detail="Invalid authentication credentials")
 
+TMDB_GENRE_CACHE: dict = {
+    "movie": {"genres": {}, "updated_at": None},
+    "tv": {"genres": {}, "updated_at": None},
+}
+
+
 def download_and_encode_image(image_url: str) -> Optional[str]:
     """Download image from URL and convert to base64"""
     try:
@@ -186,6 +195,67 @@ def download_and_encode_image(image_url: str) -> Optional[str]:
     except Exception as e:
         logger.error(f"Error downloading image: {e}")
         return None
+
+
+def tmdb_search(path: str, params: dict):
+    headers = {}
+    if TMDB_API_KEY.startswith("eyJ"):
+        # TMDB v4 Read Access Token (JWT)
+        headers["Authorization"] = f"Bearer {TMDB_API_KEY}"
+        params = {**params, "language": "en-US"}
+    else:
+        # TMDB v3 API Key
+        params = {**params, "api_key": TMDB_API_KEY, "language": "en-US"}
+    try:
+        response = requests.get(f"{TMDB_BASE_URL}/{path}", params=params, headers=headers, timeout=10)
+        response.raise_for_status()
+        return response.json()
+    except requests.RequestException as exc:
+        logger.error(f"TMDB request failed for {path}: {exc}")
+        raise
+
+
+def load_tmdb_genres(media_type: str) -> dict:
+    media_cache = TMDB_GENRE_CACHE.get(media_type, {})
+    updated_at = media_cache.get("updated_at")
+    if updated_at and (datetime.utcnow() - updated_at).seconds < 86400:
+        return media_cache.get("genres", {})
+
+    try:
+        response = tmdb_search(f"genre/{media_type}/list", {})
+        genres = {item["id"]: item["name"] for item in response.get("genres", [])}
+        TMDB_GENRE_CACHE[media_type] = {
+            "genres": genres,
+            "updated_at": datetime.utcnow(),
+        }
+        return genres
+    except Exception as exc:
+        logger.warning(f"Unable to load TMDB genres for {media_type}: {exc}")
+        return {}
+
+
+def map_tmdb_item(item: dict) -> dict:
+    if item.get("media_type") == "tv":
+        title = item.get("name")
+        year = (item.get("first_air_date") or "")[:4]
+        genre_map = load_tmdb_genres("tv")
+    else:
+        title = item.get("title") or item.get("name")
+        year = (item.get("release_date") or "")[:4]
+        genre_map = load_tmdb_genres("movie")
+
+    genres = [genre_map.get(gid, "") for gid in item.get("genre_ids", [])]
+    genres = [g for g in genres if g]
+    return {
+        "tmdb_id": item.get("id"),
+        "title": title,
+        "poster_path": item.get("poster_path"),
+        "tmdb_rating": item.get("vote_average"),
+        "genres": genres,
+        "year": year,
+        "media_type": item.get("media_type") or ("tv" if item.get("first_air_date") else "movie"),
+        "overview": item.get("overview", ""),
+    }
 
 # Authentication Routes
 @api_router.post("/signup", response_model=Token)
@@ -322,7 +392,10 @@ async def add_movie(movie_data: MovieCreate, user_id: str = Depends(get_current_
         year=movie_data.year,
         media_type=movie_data.media_type
     )
-    await db.movies.insert_one(movie.dict())
+    try:
+        await db.movies.insert_one(movie.dict())
+    except DuplicateKeyError:
+        raise HTTPException(status_code=400, detail="Movie already in your list")
     return movie
 
 @api_router.put("/movies/{movie_id}")
@@ -361,65 +434,95 @@ async def delete_movie(movie_id: str, user_id: str = Depends(get_current_user)):
 
 # TMDB Search Route
 @api_router.get("/search/tmdb")
-async def search_tmdb(query: str, user_id: str = Depends(get_current_user)):
+async def search_tmdb(query: str, page: int = 1, user_id: str = Depends(get_current_user)):
     try:
-        # Search for multi (movies and TV shows)
-        response = requests.get(
-            f"{TMDB_BASE_URL}/search/multi",
-            params={
-                "api_key": TMDB_API_KEY,
-                "query": query,
-                "page": 1
-            },
-            timeout=10
-        )
-        response.raise_for_status()
-        data = response.json()
-        
-        # Filter only movies and TV shows
-        results = []
-        for item in data.get("results", []):
-            if item.get("media_type") in ["movie", "tv"]:
-                # Get genre names
-                genres = []
-                if "genre_ids" in item:
-                    # Map genre IDs to names (simplified)
-                    genre_map = {
-                        28: "Action", 12: "Adventure", 16: "Animation", 35: "Comedy",
-                        80: "Crime", 99: "Documentary", 18: "Drama", 10751: "Family",
-                        14: "Fantasy", 36: "History", 27: "Horror", 10402: "Music",
-                        9648: "Mystery", 10749: "Romance", 878: "Sci-Fi", 10770: "TV",
-                        53: "Thriller", 10752: "War", 37: "Western"
-                    }
-                    genres = [genre_map.get(gid, "") for gid in item.get("genre_ids", [])]
-                    genres = [g for g in genres if g]
-                
-                results.append({
-                    "tmdb_id": item.get("id"),
-                    "title": item.get("title") or item.get("name"),
-                    "poster_path": item.get("poster_path"),
-                    "tmdb_rating": item.get("vote_average"),
-                    "genres": genres,
-                    "year": (item.get("release_date") or item.get("first_air_date", ""))[:4],
-                    "media_type": item.get("media_type"),
-                    "overview": item.get("overview", "")
-                })
-        
-        return {"results": results}
+        response = tmdb_search("search/multi", {"query": query, "page": page})
+        results = [map_tmdb_item(item) for item in response.get("results", []) if item.get("media_type") in ["movie", "tv"]]
+        return {
+            "results": results,
+            "total_pages": response.get("total_pages", 1),
+            "page": response.get("page", 1)
+        }
     except Exception as e:
         logger.error(f"TMDB search error: {e}")
         raise HTTPException(status_code=500, detail="Failed to search TMDB")
 
+
+def safe_tmdb_results(path: str, params: dict) -> list:
+    try:
+        response = tmdb_search(path, params)
+        return [map_tmdb_item(item) for item in response.get("results", [])][:12]
+    except Exception as e:
+        logger.warning(f"TMDB fallback for {path}: {e}")
+        return []
+
+
+@api_router.get("/tmdb/trending")
+async def tmdb_trending(user_id: str = Depends(get_current_user)):
+    return {"results": safe_tmdb_results("trending/all/day", {"page": 1})}
+
+
+@api_router.get("/tmdb/popular")
+async def tmdb_popular(user_id: str = Depends(get_current_user)):
+    return {"results": safe_tmdb_results("movie/popular", {"page": 1})}
+
+
+@api_router.get("/tmdb/top-rated")
+async def tmdb_top_rated(user_id: str = Depends(get_current_user)):
+    return {"results": safe_tmdb_results("movie/top_rated", {"page": 1})}
+
+
+@api_router.get("/tmdb/recommendations")
+async def tmdb_recommendations(user_id: str = Depends(get_current_user)):
+    return {"results": safe_tmdb_results("movie/now_playing", {"page": 1})}
+
+
 # Include the router in the main app
 app.include_router(api_router)
+
+cors_origins = os.environ.get("CORS_ALLOWED_ORIGINS")
+allowed_origins = [origin.strip() for origin in cors_origins.split(",")] if cors_origins else ["*"]
 
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
-    allow_origins=["*"],
+    allow_origins=allowed_origins,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+async def cleanup_duplicate_movies():
+    try:
+        # Group movies by user_id and tmdb_id, and if count > 1, delete all but the first one
+        pipeline = [
+            {
+                "$group": {
+                    "_id": {"user_id": "$user_id", "tmdb_id": "$tmdb_id"},
+                    "ids": {"$push": "$id"},
+                    "count": {"$sum": 1}
+                }
+            },
+            {"$match": {"count": {"$gt": 1}}}
+        ]
+        cursor = db.movies.aggregate(pipeline)
+        async for group in cursor:
+            # Keep the first ID, delete the rest
+            ids_to_keep = group["ids"][0]
+            ids_to_delete = group["ids"][1:]
+            logger.info(f"Removing duplicate movies for user {group['_id']['user_id']}, tmdb_id {group['_id']['tmdb_id']}: {ids_to_delete}")
+            await db.movies.delete_many({"id": {"$in": ids_to_delete}})
+    except Exception as e:
+        logger.error(f"Error during duplicate movies cleanup: {e}")
+
+@app.on_event("startup")
+async def startup_db_client():
+    # Cleanup duplicates and create unique index
+    await cleanup_duplicate_movies()
+    try:
+        await db.movies.create_index([("user_id", 1), ("tmdb_id", 1)], unique=True)
+        logger.info("Created unique index on movies collection")
+    except Exception as e:
+        logger.error(f"Error creating unique index on movies collection: {e}")
 
 @app.on_event("shutdown")
 async def shutdown_db_client():

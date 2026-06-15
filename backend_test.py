@@ -10,7 +10,7 @@ import time
 from typing import Dict, Any, Optional
 
 # Configuration
-BACKEND_URL = "https://watchlist-organizer.preview.emergentagent.com/api"
+BACKEND_URL = "http://localhost:8000/api"
 TEST_USER_EMAIL = "testuser@cineviax.com"
 TEST_USER_PASSWORD = "TestPassword123!"
 
@@ -407,6 +407,19 @@ class CineviaxTester:
         movie_data = self.test_tmdb_search()
         if movie_data:
             tests_passed += 1
+        else:
+            # Local network connection to TMDB might be blocked/reset. Use fallback mock data
+            # to verify the remaining database integration tests.
+            print("⚠️ TMDB search failed. Using fallback mock movie data for downstream tests.")
+            movie_data = {
+                "tmdb_id": 27205,
+                "title": "Inception",
+                "poster_path": "/qmDp59hUgRStFzsAf2pt0tl25V5.jpg",
+                "tmdb_rating": 8.3,
+                "genres": ["Action", "Science Fiction", "Adventure"],
+                "year": "2010",
+                "media_type": "movie"
+            }
         
         # 4. Add a movie from TMDB results to watchlist
         if movie_data:

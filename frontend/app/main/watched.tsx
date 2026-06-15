@@ -18,7 +18,8 @@ import { useRouter } from 'expo-router';
 import { useAuth } from '../../contexts/AuthContext';
 import CineviaxLogo from '../../components/CineviaxLogo';
 
-const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL || 'http://localhost:8000';
+import { API_URL } from '../../utils/api';
+import { cacheWatched, getCachedWatched } from '../../utils/cacheStorage';
 
 interface Movie {
   id: string;
@@ -46,8 +47,22 @@ export default function Watched() {
   const [filterType, setFilterType] = useState<'all' | 'movie' | 'tv'>('all');
 
   useEffect(() => {
+    loadCachedData();
     fetchMovies();
   }, []);
+
+  const loadCachedData = async () => {
+    try {
+      const cached = await getCachedWatched();
+      if (cached && cached.length > 0) {
+        setMovies(cached);
+        setFilteredMovies(cached);
+        setLoading(false);
+      }
+    } catch (e) {
+      console.error('Error loading cached watched data:', e);
+    }
+  };
 
   useEffect(() => {
     filterAndSortMovies();
@@ -69,13 +84,15 @@ export default function Watched() {
       });
       const watchedMovies = response.data.filter((m: Movie) => m.watched);
       setMovies(watchedMovies);
-      setFilteredMovies(watchedMovies);
+      await cacheWatched(watchedMovies);
     } catch (error: any) {
       if (await handleUnauthorizedError(error)) {
         return;
       }
       console.error('Error fetching movies:', error);
-      Alert.alert('Error', 'Failed to load movies');
+      if (movies.length === 0) {
+        Alert.alert('Error', 'Failed to load movies');
+      }
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -118,6 +135,11 @@ export default function Watched() {
   };
 
   const moveToWatchlist = async (movieId: string) => {
+    const originalMovies = [...movies];
+
+    // Optimistic update
+    setMovies((prev) => prev.filter((m) => m.id !== movieId));
+
     try {
       await axios.put(
         `${API_URL}/api/movies/${movieId}`,
@@ -126,6 +148,7 @@ export default function Watched() {
       );
       fetchMovies();
     } catch (error: any) {
+      setMovies(originalMovies);
       if (await handleUnauthorizedError(error)) {
         return;
       }
@@ -135,12 +158,18 @@ export default function Watched() {
   };
 
   const deleteMovie = async (movieId: string) => {
+    const originalMovies = [...movies];
+
+    // Optimistic update
+    setMovies((prev) => prev.filter((m) => m.id !== movieId));
+
     try {
       await axios.delete(`${API_URL}/api/movies/${movieId}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       fetchMovies();
     } catch (error: any) {
+      setMovies(originalMovies);
       if (await handleUnauthorizedError(error)) {
         return;
       }
